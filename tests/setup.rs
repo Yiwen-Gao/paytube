@@ -9,6 +9,7 @@ use {
         signature::Keypair,
         system_program,
     },
+    solana_rpc::rpc::JsonRpcConfig,
     solana_test_validator::{TestValidator, TestValidatorGenesis},
     spl_token::state::{Account as TokenAccount, Mint},
 };
@@ -34,6 +35,10 @@ impl TestValidatorContext {
         let (test_validator, payer) = TestValidatorGenesis::default()
             .epoch_schedule(epoch_schedule)
             .add_accounts(accounts)
+            .rpc_config(JsonRpcConfig {
+                enable_rpc_transaction_history: true, // Enable transaction history
+                ..JsonRpcConfig::default_for_test() // Keep other RPC configurations as default
+            })
             .start();
 
         Self {

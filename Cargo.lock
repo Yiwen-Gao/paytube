@@ -3139,17 +3139,21 @@ checksum = "57c0d7b74b563b49d38dae00a0c37d4d6de9b432382b2892f0574ddcae73fd0a"
 name = "paytube-svm"
 version = "0.1.0"
 dependencies = [
+ "futures 0.1.31",
  "solana-bpf-loader-program",
  "solana-client",
  "solana-compute-budget",
  "solana-logger",
  "solana-program-runtime",
+ "solana-rpc",
  "solana-sdk",
  "solana-svm",
  "solana-system-program",
  "solana-test-validator",
+ "solana-transaction-status",
  "spl-associated-token-account 4.0.0",
  "spl-token 6.0.0",
+ "tokio",
 ]
 
 [[package]]

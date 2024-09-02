@@ -83,12 +83,12 @@ use {
 pub struct PayTubeChannel {
     /// I think you know why this is a bad idea...
     keys: Vec<Keypair>,
-    rpc_client: RpcClient,
+    rpc_client: Arc<RpcClient>,
 }
 
 impl PayTubeChannel {
     pub fn new(keys: Vec<Keypair>, rpc_client: RpcClient) -> Self {
-        Self { keys, rpc_client }
+        Self { keys, rpc_client: Arc::new(rpc_client) }
     }
 
     /// The PayTube API. Processes a batch of PayTube transactions.
@@ -100,7 +100,7 @@ impl PayTubeChannel {
     /// * Custom Solana transaction ordering (e.g. MEV).
     ///
     /// The general scaffold of the PayTube API would remain the same.
-    pub fn process_paytube_transfers(&self, transactions: &[PayTubeTransaction]) {
+    pub async fn process_paytube_transfers(&self, transactions: &[PayTubeTransaction]) {
         // PayTube default configs.
         let compute_budget = ComputeBudget::default();
         let feature_set = FeatureSet::all_enabled();
@@ -145,9 +145,9 @@ impl PayTubeChannel {
         );
 
         // 3. Convert results into a final ledger using a `PayTubeSettler`.
-        let settler = PayTubeSettler::new(&self.rpc_client);
+        let settler = PayTubeSettler::new(self.rpc_client.clone()); // PayTubeSettler::new(&self.rpc_client);
 
         // 4. Submit to the Solana base chain.
-        settler.process_settle(transactions, results, &self.keys);
+        settler.process_settle(transactions, results, &self.keys).await;
     }
 }

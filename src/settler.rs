@@ -16,10 +16,15 @@ use {
     solana_sdk::{
         instruction::Instruction as SolanaInstruction, pubkey::Pubkey, signature::Keypair,
         signer::Signer, system_instruction, transaction::Transaction as SolanaTransaction,
+        signature::Signature,
     },
+    solana_transaction_status::UiTransactionEncoding,
     solana_svm::transaction_processor::LoadAndExecuteSanitizedTransactionsOutput,
     spl_associated_token_account::get_associated_token_address,
     std::collections::HashMap,
+    std::sync::Arc,
+    tokio::{task, join},
+    futures::future::join_all,
 };
 
 /// The key used for storing ledger entries.
@@ -60,6 +65,7 @@ impl Ledger {
                 if result.was_executed_successfully() {
                     let mint = transaction.mint;
                     let mut keys = [transaction.from, transaction.to];
+                    let amount = transaction.amount as i128;
                     keys.sort();
                     let amount = if keys.iter().position(|k| k.eq(&transaction.from)).unwrap() == 0
                     {
@@ -102,40 +108,98 @@ impl Ledger {
 }
 
 /// PayTube final transaction settler.
-pub struct PayTubeSettler<'a> {
-    rpc_client: &'a RpcClient,
+pub struct PayTubeSettler/*<'a>*/ {
+    rpc_client: Arc<RpcClient>, // &'a RpcClient,
 }
 
-impl<'a> PayTubeSettler<'a> {
-    pub fn new(rpc_client: &'a RpcClient) -> Self {
+impl/*<'a>*/ PayTubeSettler/*<'a>*/ {
+    pub fn new(rpc_client: Arc<RpcClient> /*&'a RpcClient*/) -> Self {
         Self { rpc_client }
     }
 
     /// Settle the payment channel results to the Solana blockchain.
-    pub fn process_settle(
+    pub async fn process_settle(
         &self,
         paytube_transactions: &[PayTubeTransaction],
         svm_output: LoadAndExecuteSanitizedTransactionsOutput,
         keys: &[Keypair],
     ) {
-        // Build the ledger from the processed PayTube transactions.
-        let ledger = Ledger::new(paytube_transactions, svm_output);
-
-        // Build the Solana instructions from the ledger.
-        let instructions = ledger.generate_base_chain_instructions();
+        // // Build the ledger from the processed PayTube transactions.
+        // let ledger = Ledger::new(paytube_transactions, svm_output);
+        //
+        // // Build the Solana instructions from the ledger.
+        // let instructions = ledger.generate_base_chain_instructions();
 
         // Send the transactions to the Solana blockchain.
         let recent_blockhash = self.rpc_client.get_latest_blockhash().unwrap();
-        instructions.chunks(10).for_each(|chunk| {
-            let transaction = SolanaTransaction::new_signed_with_payer(
-                chunk,
-                Some(&keys[0].pubkey()),
-                keys,
-                recent_blockhash,
-            );
-            self.rpc_client
-                .send_and_confirm_transaction(&transaction)
-                .unwrap();
+        // instructions.chunks(10).for_each(|chunk| {
+        //     let transaction = SolanaTransaction::new_signed_with_payer(
+        //         chunk,
+        //         Some(&keys[0].pubkey()),
+        //         keys,
+        //         recent_blockhash,
+        //     );
+        //     self.rpc_client
+        //         .send_and_confirm_transaction(&transaction)
+        //         .unwrap();
+        // });
+
+        // part 1
+        let [payer, alice, bob, will, ..] = keys else { todo!() };
+        let ins1 = [
+            system_instruction::transfer(&alice.pubkey(), &bob.pubkey(), 2_000_000),
+            system_instruction::transfer(&bob.pubkey(), &will.pubkey(), 5_000_000),
+        ];
+        let tx1 = SolanaTransaction::new_signed_with_payer(
+            &ins1,
+            Some(&keys[0].pubkey()),
+            &[payer, alice, bob],
+            recent_blockhash,
+        );
+
+        // part 2
+        let recent_blockhash = self.rpc_client.get_latest_blockhash().unwrap();
+        let ins2 = [
+            system_instruction::transfer(&alice.pubkey(), &bob.pubkey(), 2_000_000),
+            system_instruction::transfer(&will.pubkey(), &alice.pubkey(), 1_000_000),
+        ];
+        let tx2 = SolanaTransaction::new_signed_with_payer(
+            &ins2,
+            Some(&keys[0].pubkey()),
+            &[payer, alice, will],
+            recent_blockhash,
+        );
+
+        let txs = [tx1, tx2];
+        let [future1, future2] = txs.map(|transaction| {
+            let rpc_client = self.rpc_client.clone();
+            tokio::spawn(async move {
+                rpc_client
+                    .send_and_confirm_transaction(&transaction)
+                    .unwrap()
+            })
         });
+
+        // alice: 8_000_000 (-2M)
+        // bob: 7_000_000 (+2M - 5M)
+        // will: 15_000_000 (+5M)
+
+        // alice: 9_000_000 (-2M + 1M)
+        // bob: 12_000_000 (+2M)
+        // will: 9_000_000 (-1M)
+
+        // let res = join!(future1, future2);
+        // futures::future::join_all([&future1, &future2]).await;
+        let res1: Signature = future1.await.unwrap();
+        // let status1 = self.rpc_client.get_transaction(
+        //     &res1,
+        //     UiTransactionEncoding::Json,
+        // ).unwrap();
+        let res2: Signature = future2.await.unwrap();
+        // let status2 = self.rpc_client.get_transaction(
+        //     &res2,
+        //     UiTransactionEncoding::Json,
+        // ).unwrap();
+        // println!("{:?} {:?}", status1.slot, status2.slot)
     }
 }

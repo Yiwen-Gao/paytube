@@ -4,13 +4,23 @@ use {
     paytube_svm::{transaction::PayTubeTransaction, PayTubeChannel},
     setup::{system_account, TestValidatorContext},
     solana_sdk::{signature::Keypair, signer::Signer},
+    solana_sdk::signer::keypair::keypair_from_seed,
 };
 
-#[test]
-fn test_native_sol() {
-    let alice = Keypair::new();
-    let bob = Keypair::new();
-    let will = Keypair::new();
+#[tokio::test(flavor = "multi_thread")]
+async fn test_native_sol() {
+    let seed: &[u8; 32] = b"an_example_fixed_seed_for_testin";
+    // Generate a fixed keypair using the seed
+    let alice = keypair_from_seed(seed).unwrap();
+    let seed: &[u8; 32] = b"an_example_fixed_seed_for_testim";
+    // Generate a fixed keypair using the seed
+    let bob = keypair_from_seed(seed).unwrap();
+    let seed: &[u8; 32] = b"an_example_fixed_seed_for_testio";
+    // Generate a fixed keypair using the seed
+    let will = keypair_from_seed(seed).unwrap();
+    // let alice = // Keypair::new();
+    // let bob = Keypair::new();
+    // let will = Keypair::new();
 
     let alice_pubkey = alice.pubkey();
     let bob_pubkey = bob.pubkey();
@@ -22,9 +32,12 @@ fn test_native_sol() {
         (will_pubkey, system_account(10_000_000)),
     ];
 
-    let context = TestValidatorContext::start_with_accounts(accounts);
+    let context = tokio::task::spawn_blocking(|| {
+        TestValidatorContext::start_with_accounts(accounts)
+    }).await.expect("Failed to setup test validator");
     let test_validator = &context.test_validator;
     let payer = context.payer.insecure_clone();
+    let payer_pubkey = payer.pubkey();
 
     let rpc_client = test_validator.get_rpc_client();
 
@@ -59,14 +72,22 @@ fn test_native_sol() {
             amount: 1_000_000,
             mint: None,
         },
-    ]);
+    ]).await;
 
     // Ledger:
     // Alice:   10_000_000 - 2_000_000 - 2_000_000 + 1_000_000  = 7_000_000
     // Bob:     10_000_000 + 2_000_000 - 5_000_000 + 2_000_000  = 9_000_000
     // Will:    10_000_000 + 5_000_000 - 1_000_000              = 14_000_000
     let rpc_client = test_validator.get_rpc_client();
-    assert_eq!(rpc_client.get_balance(&alice_pubkey).unwrap(), 7_000_000);
-    assert_eq!(rpc_client.get_balance(&bob_pubkey).unwrap(), 9_000_000);
-    assert_eq!(rpc_client.get_balance(&will_pubkey).unwrap(), 14_000_000);
+    let alice_balance = rpc_client.get_balance(&alice_pubkey).unwrap();
+    assert_eq!(alice_balance, 7_000_000);
+    let bob_balance = rpc_client.get_balance(&bob_pubkey).unwrap();
+    assert_eq!(bob_balance, 9_000_000);
+    let will_balance = rpc_client.get_balance(&will_pubkey).unwrap();
+    assert_eq!(will_balance, 14_000_000);
+
+    // alice 154
+    // bob 53
+    // will 135
+    // payer 33
 }
